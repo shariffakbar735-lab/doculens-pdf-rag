@@ -1,0 +1,36 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local ChromaDB data (lives in a Docker volume in production)
+chroma_db/
+
+# Editor artefacts
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Uploaded PDFs (uploaded at runtime, not part of the image)
+*.pdf
+
+# Environment variable files (may contain secrets)
+.env
+
+# Logs
+*.log

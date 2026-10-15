@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# RagKit Simple – compose.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Services:
+#   ollama        – Ollama LLM server (model weights live in a named volume)
+#   model-init    – One-shot container that pulls required models on first run
+#   ragkit        – Streamlit application
+#
+# Usage (Windows / macOS / Linux with Docker Desktop):
+#   docker compose up --build
+#
+# The application will be available at http://localhost:8501
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Ollama LLM server ────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ragkit-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama   # model weights persisted here
+    ports:
+      - "11434:11434"
+    # Ollama does not expose a ready endpoint on /api/tags immediately;
+    # a health-check is omitted here intentionally – model-init retries.
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Model initialiser (runs once, then exits) ────────────────────────────
+  model-init:
+    image: ollama/ollama:latest
+    container_name: ragkit-model-init
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: >
+      sh -c "
+        echo 'Pulling ${LLM_MODEL:-qwen3:4b} …' &&
+        ollama pull ${LLM_MODEL:-qwen3:4b} &&
+        echo 'Pulling ${EMBED_MODEL:-nomic-embed-text} …' &&
+        ollama pull ${EMBED_MODEL:-nomic-embed-text} &&
+        echo 'Models ready.'
+      "
+    volumes:
+      - ollama_data:/root/.ollama   # share the same volume so pulls persist
+
+  # ── Streamlit application ─────────────────────────────────────────────────
+  ragkit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ragkit-app
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    environment:
+      # Reach the ollama service by its Docker Compose service name, NOT localhost
+      - OLLAMA_HOST=http://ollama:11434
+      - LLM_MODEL=${LLM_MODEL:-qwen3:4b}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${CHUNK_SIZE:-800}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-100}
+      - RETRIEVAL_TOP_K=${RETRIEVAL_TOP_K:-4}
+      - CHROMA_PATH=/data/chroma_db
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
+    volumes:
+      - chroma_data:/data/chroma_db  # ChromaDB persisted here
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+# ── Named volumes ─────────────────────────────────────────────────────────
+volumes:
+  ollama_data:
+    # Ollama model weights – survives container restarts and rebuilds
+  chroma_data:
+    # ChromaDB vector database – survives container restarts and rebuilds
